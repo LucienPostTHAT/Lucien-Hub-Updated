@@ -1,0 +1,858 @@
+-- Lucien Hub
+-- LocalScript in StarterPlayer > StarterPlayerScripts
+
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local Stats = game:GetService("Stats")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+local camera = workspace.CurrentCamera
+local mouse = player:GetMouse()
+
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local rootPart = character:WaitForChild("HumanoidRootPart")
+
+player.CharacterAdded:Connect(function(char)
+	character = char
+	humanoid = char:WaitForChild("Humanoid")
+	rootPart = char:WaitForChild("HumanoidRootPart")
+end)
+
+local function refreshCharacter()
+	if not character or not character.Parent then
+		character = player.Character or player.CharacterAdded:Wait()
+	end
+	if not humanoid or not humanoid.Parent then
+		humanoid = character:WaitForChild("Humanoid")
+	end
+	if not rootPart or not rootPart.Parent then
+		rootPart = character:WaitForChild("HumanoidRootPart")
+	end
+end
+
+local COLORS = {
+	Panel = Color3.fromRGB(7, 16, 28),
+	Panel2 = Color3.fromRGB(10, 22, 37),
+	Top = Color3.fromRGB(8, 19, 31),
+	Button = Color3.fromRGB(10, 24, 40),
+	ButtonHover = Color3.fromRGB(16, 34, 57),
+	Accent = Color3.fromRGB(70, 120, 255),
+	AccentDark = Color3.fromRGB(25, 55, 115),
+	Text = Color3.fromRGB(220, 232, 255),
+	SubText = Color3.fromRGB(130, 155, 190),
+	Line = Color3.fromRGB(18, 48, 92)
+}
+
+local flying = false
+local flySpeed = 50
+local infiniteJump = false
+local noclip = false
+local walkSpeed = 16
+local tagsEnabled = false
+local showDistance = true
+local currentTab = "Movement"
+local menuOpen = true
+local trackedTags = {}
+local teleportClickEnabled = false
+local clickTpDebounce = false
+local statsOverlayEnabled = true
+
+local fpsFrames = 0
+local fpsLastTime = tick()
+local currentFPS = 0
+
+local keys = {
+	W = false,
+	A = false,
+	S = false,
+	D = false,
+	Space = false,
+	Shift = false
+}
+
+local bodyVelocity
+local bodyGyro
+local flyConnection
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "LucienHub"
+screenGui.ResetOnSpawn = false
+screenGui.IgnoreGuiInset = true
+screenGui.DisplayOrder = 999
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.Parent = playerGui
+
+local overlayFrame = Instance.new("Frame")
+overlayFrame.Name = "StatsOverlay"
+overlayFrame.Size = UDim2.new(0, 140, 0, 54)
+overlayFrame.Position = UDim2.new(0, 12, 0, 12)
+overlayFrame.BackgroundColor3 = COLORS.Panel
+overlayFrame.BorderSizePixel = 0
+overlayFrame.Parent = screenGui
+
+local overlayCorner = Instance.new("UICorner")
+overlayCorner.CornerRadius = UDim.new(0, 12)
+overlayCorner.Parent = overlayFrame
+
+local overlayStroke = Instance.new("UIStroke")
+overlayStroke.Color = COLORS.Line
+overlayStroke.Thickness = 1
+overlayStroke.Parent = overlayFrame
+
+local fpsLabel = Instance.new("TextLabel")
+fpsLabel.BackgroundTransparency = 1
+fpsLabel.Size = UDim2.new(1, -12, 0, 20)
+fpsLabel.Position = UDim2.new(0, 8, 0, 6)
+fpsLabel.Text = "FPS: 0"
+fpsLabel.TextColor3 = COLORS.Text
+fpsLabel.TextSize = 13
+fpsLabel.Font = Enum.Font.GothamBold
+fpsLabel.TextXAlignment = Enum.TextXAlignment.Left
+fpsLabel.Parent = overlayFrame
+
+local pingLabel = Instance.new("TextLabel")
+pingLabel.BackgroundTransparency = 1
+pingLabel.Size = UDim2.new(1, -12, 0, 20)
+pingLabel.Position = UDim2.new(0, 8, 0, 28)
+pingLabel.Text = "Ping: 0 ms"
+pingLabel.TextColor3 = COLORS.SubText
+pingLabel.TextSize = 12
+pingLabel.Font = Enum.Font.Gotham
+pingLabel.TextXAlignment = Enum.TextXAlignment.Left
+pingLabel.Parent = overlayFrame
+
+local fovCircle = Instance.new("Frame")
+fovCircle.Name = "FOVCircle"
+fovCircle.AnchorPoint = Vector2.new(0.5, 0.5)
+fovCircle.Position = UDim2.new(0.5, 0, 0.5, 0)
+fovCircle.Size = UDim2.new(0, 180, 0, 180)
+fovCircle.BackgroundTransparency = 1
+fovCircle.BorderSizePixel = 0
+fovCircle.Visible = true
+fovCircle.Parent = screenGui
+
+local fovStroke = Instance.new("UIStroke")
+fovStroke.Color = COLORS.Accent
+fovStroke.Thickness = 2
+fovStroke.Transparency = 0.15
+fovStroke.Parent = fovCircle
+
+local fovCorner = Instance.new("UICorner")
+fovCorner.CornerRadius = UDim.new(1, 0)
+fovCorner.Parent = fovCircle
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "Main"
+mainFrame.Size = UDim2.new(0, 360, 0, 390)
+mainFrame.Position = UDim2.new(0.5, -180, 0.5, -195)
+mainFrame.BackgroundColor3 = COLORS.Panel
+mainFrame.BorderSizePixel = 0
+mainFrame.Parent = screenGui
+
+local mainCorner = Instance.new("UICorner")
+mainCorner.CornerRadius = UDim.new(0, 14)
+mainCorner.Parent = mainFrame
+
+local mainStroke = Instance.new("UIStroke")
+mainStroke.Color = COLORS.Line
+mainStroke.Thickness = 1
+mainStroke.Parent = mainFrame
+
+local titleBar = Instance.new("Frame")
+titleBar.Size = UDim2.new(1, 0, 0, 44)
+titleBar.BackgroundColor3 = COLORS.Top
+titleBar.BorderSizePixel = 0
+titleBar.Parent = mainFrame
+
+local titleCorner = Instance.new("UICorner")
+titleCorner.CornerRadius = UDim.new(0, 14)
+titleCorner.Parent = titleBar
+
+local titleFix = Instance.new("Frame")
+titleFix.Size = UDim2.new(1, 0, 0, 16)
+titleFix.Position = UDim2.new(0, 0, 1, -16)
+titleFix.BackgroundColor3 = COLORS.Top
+titleFix.BorderSizePixel = 0
+titleFix.Parent = titleBar
+
+local title = Instance.new("TextLabel")
+title.BackgroundTransparency = 1
+title.Position = UDim2.new(0, 14, 0, 0)
+title.Size = UDim2.new(1, -60, 1, 0)
+title.Text = "Lucien Hub"
+title.TextColor3 = COLORS.Text
+title.TextSize = 18
+title.Font = Enum.Font.GothamBold
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Parent = titleBar
+
+local minimizeButton = Instance.new("TextButton")
+minimizeButton.Size = UDim2.new(0, 30, 0, 24)
+minimizeButton.Position = UDim2.new(1, -40, 0.5, -12)
+minimizeButton.BackgroundColor3 = COLORS.Button
+minimizeButton.Text = "—"
+minimizeButton.TextColor3 = COLORS.Text
+minimizeButton.TextSize = 18
+minimizeButton.Font = Enum.Font.GothamBold
+minimizeButton.BorderSizePixel = 0
+minimizeButton.Parent = titleBar
+
+local minimizeCorner = Instance.new("UICorner")
+minimizeCorner.CornerRadius = UDim.new(0, 8)
+minimizeCorner.Parent = minimizeButton
+
+local minimizeStroke = Instance.new("UIStroke")
+minimizeStroke.Color = COLORS.Line
+minimizeStroke.Parent = minimizeButton
+
+local tabBar = Instance.new("Frame")
+tabBar.Size = UDim2.new(1, -20, 0, 34)
+tabBar.Position = UDim2.new(0, 10, 0, 54)
+tabBar.BackgroundTransparency = 1
+tabBar.Parent = mainFrame
+
+local contentHolder = Instance.new("Frame")
+contentHolder.Size = UDim2.new(1, -20, 1, -108)
+contentHolder.Position = UDim2.new(0, 10, 0, 96)
+contentHolder.BackgroundColor3 = COLORS.Panel2
+contentHolder.BorderSizePixel = 0
+contentHolder.Parent = mainFrame
+
+local contentCorner = Instance.new("UICorner")
+contentCorner.CornerRadius = UDim.new(0, 12)
+contentCorner.Parent = contentHolder
+
+local contentStroke = Instance.new("UIStroke")
+contentStroke.Color = COLORS.Line
+contentStroke.Parent = contentHolder
+
+local infoLabel = Instance.new("TextLabel")
+infoLabel.BackgroundTransparency = 1
+infoLabel.Size = UDim2.new(1, -20, 0, 18)
+infoLabel.Position = UDim2.new(0, 10, 1, -22)
+infoLabel.Text = "RightShift = toggle menu"
+infoLabel.TextColor3 = COLORS.SubText
+infoLabel.TextSize = 11
+infoLabel.Font = Enum.Font.Gotham
+infoLabel.TextXAlignment = Enum.TextXAlignment.Left
+infoLabel.Parent = mainFrame
+
+local movementPage = Instance.new("Frame")
+movementPage.Size = UDim2.new(1, 0, 1, 0)
+movementPage.BackgroundTransparency = 1
+movementPage.Parent = contentHolder
+
+local visualsPage = Instance.new("Frame")
+visualsPage.Size = UDim2.new(1, 0, 1, 0)
+visualsPage.BackgroundTransparency = 1
+visualsPage.Visible = false
+visualsPage.Parent = contentHolder
+
+local teleportPage = Instance.new("Frame")
+teleportPage.Size = UDim2.new(1, 0, 1, 0)
+teleportPage.BackgroundTransparency = 1
+teleportPage.Visible = false
+teleportPage.Parent = contentHolder
+
+local function makeButton(parent, text, y, height)
+	local b = Instance.new("TextButton")
+	b.Size = UDim2.new(1, 0, 0, height or 30)
+	b.Position = UDim2.new(0, 0, 0, y)
+	b.BackgroundColor3 = COLORS.Button
+	b.Text = text
+	b.TextColor3 = COLORS.Text
+	b.TextSize = 13
+	b.Font = Enum.Font.GothamSemibold
+	b.BorderSizePixel = 0
+	b.Parent = parent
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 10)
+	corner.Parent = b
+
+	local s = Instance.new("UIStroke")
+	s.Color = COLORS.Line
+	s.Parent = b
+
+	return b
+end
+
+local function makeSmallButton(parent, text, xScale, xOffset, widthScale, widthOffset, y)
+	local b = Instance.new("TextButton")
+	b.Size = UDim2.new(widthScale, widthOffset, 0, 30)
+	b.Position = UDim2.new(xScale, xOffset, 0, y)
+	b.BackgroundColor3 = COLORS.Button
+	b.Text = text
+	b.TextColor3 = COLORS.Text
+	b.TextSize = 13
+	b.Font = Enum.Font.GothamSemibold
+	b.BorderSizePixel = 0
+	b.Parent = parent
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 10)
+	corner.Parent = b
+
+	local s = Instance.new("UIStroke")
+	s.Color = COLORS.Line
+	s.Parent = b
+
+	return b
+end
+
+local function makeLabel(parent, text, y)
+	local l = Instance.new("TextLabel")
+	l.BackgroundTransparency = 1
+	l.Size = UDim2.new(1, 0, 0, 20)
+	l.Position = UDim2.new(0, 0, 0, y)
+	l.Text = text
+	l.TextColor3 = COLORS.SubText
+	l.TextSize = 13
+	l.Font = Enum.Font.Gotham
+	l.TextXAlignment = Enum.TextXAlignment.Left
+	l.Parent = parent
+	return l
+end
+
+local function applyHover(button, activeFunc)
+	button.MouseEnter:Connect(function()
+		button.BackgroundColor3 = COLORS.ButtonHover
+	end)
+	button.MouseLeave:Connect(function()
+		if activeFunc and activeFunc() then
+			button.BackgroundColor3 = COLORS.AccentDark
+		else
+			button.BackgroundColor3 = COLORS.Button
+		end
+	end)
+end
+
+local movementTab = makeSmallButton(tabBar, "Movement", 0, 0, 0.32, -4, 0)
+local visualsTab = makeSmallButton(tabBar, "Visuals", 0.34, 0, 0.32, -4, 0)
+local teleportTab = makeSmallButton(tabBar, "Teleport", 0.68, 0, 0.32, 0, 0)
+
+local flyButton = makeButton(movementPage, "Fly: OFF", 0, 34)
+local speedLabel = makeLabel(movementPage, "Flight Speed: 50", 44)
+local speedMinus = makeSmallButton(movementPage, "- Speed", 0, 0, 0.48, -2, 68)
+local speedPlus = makeSmallButton(movementPage, "+ Speed", 0.52, 0, 0.48, -2, 68)
+local jumpButton = makeButton(movementPage, "Infinite Jump: OFF", 110, 30)
+local noclipButton = makeButton(movementPage, "Noclip: OFF", 148, 30)
+local walkLabel = makeLabel(movementPage, "WalkSpeed: 16", 188)
+local walkMinus = makeSmallButton(movementPage, "- WalkSpeed", 0, 0, 0.48, -2, 212)
+local walkPlus = makeSmallButton(movementPage, "+ WalkSpeed", 0.52, 0, 0.48, -2, 212)
+
+local tagsButton = makeButton(visualsPage, "Tags: OFF", 0, 34)
+local fovLabel = makeLabel(visualsPage, "Camera FOV: 70", 48)
+local fovMinus = makeSmallButton(visualsPage, "- FOV", 0, 0, 0.48, -2, 72)
+local fovPlus = makeSmallButton(visualsPage, "+ FOV", 0.52, 0, 0.48, -2, 72)
+local circleLabel = makeLabel(visualsPage, "FOV Circle Size: 180", 114)
+local circleMinus = makeSmallButton(visualsPage, "- Circle", 0, 0, 0.48, -2, 138)
+local circlePlus = makeSmallButton(visualsPage, "+ Circle", 0.52, 0, 0.48, -2, 138)
+local circleToggle = makeButton(visualsPage, "FOV Circle: ON", 180, 30)
+local statsButton = makeButton(visualsPage, "Stats Overlay: ON", 218, 30)
+
+local tpTitle = makeLabel(teleportPage, "Teleport Click", 0)
+tpTitle.TextColor3 = COLORS.Text
+tpTitle.Font = Enum.Font.GothamBold
+
+local tpButton = makeButton(teleportPage, "Click Teleport: OFF", 34, 34)
+local tpDesc = makeLabel(teleportPage, "Turn it on, then left click anywhere to teleport there.", 76)
+tpDesc.TextWrapped = true
+tpDesc.Size = UDim2.new(1, 0, 0, 36)
+
+applyHover(movementTab, function() return currentTab == "Movement" end)
+applyHover(visualsTab, function() return currentTab == "Visuals" end)
+applyHover(teleportTab, function() return currentTab == "Teleport" end)
+
+applyHover(flyButton, function() return flying end)
+applyHover(jumpButton, function() return infiniteJump end)
+applyHover(noclipButton, function() return noclip end)
+applyHover(tagsButton, function() return tagsEnabled end)
+applyHover(circleToggle, function() return fovCircle.Visible end)
+applyHover(statsButton, function() return statsOverlayEnabled end)
+applyHover(tpButton, function() return teleportClickEnabled end)
+applyHover(speedMinus)
+applyHover(speedPlus)
+applyHover(walkMinus)
+applyHover(walkPlus)
+applyHover(fovMinus)
+applyHover(fovPlus)
+applyHover(circleMinus)
+applyHover(circlePlus)
+applyHover(minimizeButton)
+
+local function setTabVisuals()
+	movementTab.BackgroundColor3 = currentTab == "Movement" and COLORS.AccentDark or COLORS.Button
+	visualsTab.BackgroundColor3 = currentTab == "Visuals" and COLORS.AccentDark or COLORS.Button
+	teleportTab.BackgroundColor3 = currentTab == "Teleport" and COLORS.AccentDark or COLORS.Button
+end
+
+local function animatePageIn(page)
+	page.Visible = true
+	page.Position = UDim2.new(0, 18, 0, 0)
+	TweenService:Create(page, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Position = UDim2.new(0, 0, 0, 0)
+	}):Play()
+end
+
+local function switchTab(tabName)
+	currentTab = tabName
+	movementPage.Visible = false
+	visualsPage.Visible = false
+	teleportPage.Visible = false
+
+	if tabName == "Movement" then
+		animatePageIn(movementPage)
+	elseif tabName == "Visuals" then
+		animatePageIn(visualsPage)
+	elseif tabName == "Teleport" then
+		animatePageIn(teleportPage)
+	end
+
+	setTabVisuals()
+end
+
+movementTab.MouseButton1Click:Connect(function() switchTab("Movement") end)
+visualsTab.MouseButton1Click:Connect(function() switchTab("Visuals") end)
+teleportTab.MouseButton1Click:Connect(function() switchTab("Teleport") end)
+setTabVisuals()
+
+local dragging = false
+local dragStart
+local startPos
+local normalSize = mainFrame.Size
+local minimized = false
+
+titleBar.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		dragging = true
+		dragStart = input.Position
+		startPos = mainFrame.Position
+
+		input.Changed:Connect(function()
+			if input.UserInputState == Enum.UserInputState.End then
+				dragging = false
+			end
+		end)
+	end
+end)
+
+UIS.InputChanged:Connect(function(input)
+	if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+		local delta = input.Position - dragStart
+		mainFrame.Position = UDim2.new(
+			startPos.X.Scale,
+			startPos.X.Offset + delta.X,
+			startPos.Y.Scale,
+			startPos.Y.Offset + delta.Y
+		)
+	end
+end)
+
+local function setMenuOpen(state)
+	menuOpen = state
+	mainFrame.Visible = state
+end
+
+minimizeButton.MouseButton1Click:Connect(function()
+	minimized = not minimized
+	local targetSize = minimized and UDim2.new(0, 360, 0, 44) or normalSize
+
+	tabBar.Visible = not minimized
+	contentHolder.Visible = not minimized
+	infoLabel.Visible = not minimized
+
+	TweenService:Create(mainFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Size = targetSize
+	}):Play()
+end)
+
+local function stopFlying()
+	flying = false
+	flyButton.Text = "Fly: OFF"
+	flyButton.BackgroundColor3 = COLORS.Button
+
+	if flyConnection then
+		flyConnection:Disconnect()
+		flyConnection = nil
+	end
+	if bodyVelocity then
+		bodyVelocity:Destroy()
+		bodyVelocity = nil
+	end
+	if bodyGyro then
+		bodyGyro:Destroy()
+		bodyGyro = nil
+	end
+	if humanoid then
+		humanoid.PlatformStand = false
+	end
+end
+
+local function startFlying()
+	refreshCharacter()
+	if not humanoid or not rootPart then return end
+
+	flying = true
+	flyButton.Text = "Fly: ON"
+	flyButton.BackgroundColor3 = COLORS.AccentDark
+
+	bodyVelocity = Instance.new("BodyVelocity")
+	bodyVelocity.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+	bodyVelocity.Velocity = Vector3.zero
+	bodyVelocity.Parent = rootPart
+
+	bodyGyro = Instance.new("BodyGyro")
+	bodyGyro.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
+	bodyGyro.P = 10000
+	bodyGyro.CFrame = rootPart.CFrame
+	bodyGyro.Parent = rootPart
+
+	humanoid.PlatformStand = true
+
+	flyConnection = RunService.RenderStepped:Connect(function()
+		refreshCharacter()
+
+		if not flying or not rootPart or not camera then
+			stopFlying()
+			return
+		end
+
+		local moveDirection = Vector3.zero
+		if keys.W then moveDirection += camera.CFrame.LookVector end
+		if keys.S then moveDirection -= camera.CFrame.LookVector end
+		if keys.A then moveDirection -= camera.CFrame.RightVector end
+		if keys.D then moveDirection += camera.CFrame.RightVector end
+		if keys.Space then moveDirection += Vector3.new(0, 1, 0) end
+		if keys.Shift then moveDirection -= Vector3.new(0, 1, 0) end
+
+		if moveDirection.Magnitude > 0 then
+			moveDirection = moveDirection.Unit
+		end
+
+		bodyVelocity.Velocity = moveDirection * flySpeed
+		bodyGyro.CFrame = camera.CFrame
+	end)
+end
+
+flyButton.MouseButton1Click:Connect(function()
+	if flying then
+		stopFlying()
+	else
+		startFlying()
+	end
+end)
+
+speedPlus.MouseButton1Click:Connect(function()
+	flySpeed = math.clamp(flySpeed + 10, 10, 200)
+	speedLabel.Text = "Flight Speed: " .. flySpeed
+end)
+
+speedMinus.MouseButton1Click:Connect(function()
+	flySpeed = math.clamp(flySpeed - 10, 10, 200)
+	speedLabel.Text = "Flight Speed: " .. flySpeed
+end)
+
+jumpButton.MouseButton1Click:Connect(function()
+	infiniteJump = not infiniteJump
+	jumpButton.Text = infiniteJump and "Infinite Jump: ON" or "Infinite Jump: OFF"
+	jumpButton.BackgroundColor3 = infiniteJump and COLORS.AccentDark or COLORS.Button
+end)
+
+noclipButton.MouseButton1Click:Connect(function()
+	noclip = not noclip
+	noclipButton.Text = noclip and "Noclip: ON" or "Noclip: OFF"
+	noclipButton.BackgroundColor3 = noclip and COLORS.AccentDark or COLORS.Button
+end)
+
+walkPlus.MouseButton1Click:Connect(function()
+	walkSpeed = math.clamp(walkSpeed + 2, 8, 50)
+	walkLabel.Text = "WalkSpeed: " .. walkSpeed
+end)
+
+walkMinus.MouseButton1Click:Connect(function()
+	walkSpeed = math.clamp(walkSpeed - 2, 8, 50)
+	walkLabel.Text = "WalkSpeed: " .. walkSpeed
+end)
+
+local function removeTag(targetPlayer)
+	local data = trackedTags[targetPlayer]
+	if not data then return end
+	if data.billboard then
+		data.billboard:Destroy()
+	end
+	trackedTags[targetPlayer] = nil
+end
+
+local function createTag(targetPlayer, targetCharacter)
+	if targetPlayer == player then return end
+	if not targetCharacter then return end
+
+	local head = targetCharacter:FindFirstChild("Head")
+	local hrp = targetCharacter:FindFirstChild("HumanoidRootPart")
+	local hum = targetCharacter:FindFirstChildOfClass("Humanoid")
+	if not head or not hrp or not hum then return end
+
+	removeTag(targetPlayer)
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "LucienTag"
+	billboard.Size = UDim2.new(0, 105, 0, 26)
+	billboard.StudsOffset = Vector3.new(0, 3.8, 0)
+	billboard.MaxDistance = 220
+	billboard.AlwaysOnTop = true
+	billboard.Adornee = head
+	billboard.Parent = playerGui
+
+	local bg = Instance.new("Frame")
+	bg.Size = UDim2.new(1, 0, 1, 0)
+	bg.BackgroundColor3 = COLORS.Top
+	bg.BackgroundTransparency = 0.18
+	bg.BorderSizePixel = 0
+	bg.Parent = billboard
+
+	local bgCorner = Instance.new("UICorner")
+	bgCorner.CornerRadius = UDim.new(0, 8)
+	bgCorner.Parent = bg
+
+	local bgStroke = Instance.new("UIStroke")
+	bgStroke.Color = COLORS.Line
+	bgStroke.Parent = bg
+
+	local nameLabel = Instance.new("TextLabel")
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.Size = UDim2.new(1, -6, 0.55, 0)
+	nameLabel.Position = UDim2.new(0, 3, 0, 0)
+	nameLabel.Text = targetPlayer.DisplayName
+	nameLabel.TextColor3 = COLORS.Text
+	nameLabel.TextSize = 10
+	nameLabel.Font = Enum.Font.GothamBold
+	nameLabel.TextWrapped = true
+	nameLabel.Parent = bg
+
+	local distanceLabel = Instance.new("TextLabel")
+	distanceLabel.BackgroundTransparency = 1
+	distanceLabel.Size = UDim2.new(1, -6, 0.45, 0)
+	distanceLabel.Position = UDim2.new(0, 3, 0.5, 0)
+	distanceLabel.Text = "0 studs"
+	distanceLabel.TextColor3 = COLORS.SubText
+	distanceLabel.TextSize = 9
+	distanceLabel.Font = Enum.Font.Gotham
+	distanceLabel.Parent = bg
+
+	trackedTags[targetPlayer] = {
+		character = targetCharacter,
+		billboard = billboard,
+		distanceLabel = distanceLabel
+	}
+end
+
+local function setTagsEnabled(state)
+	tagsEnabled = state
+	tagsButton.Text = state and "Tags: ON" or "Tags: OFF"
+	tagsButton.BackgroundColor3 = state and COLORS.AccentDark or COLORS.Button
+
+	if not state then
+		for targetPlayer in pairs(trackedTags) do
+			removeTag(targetPlayer)
+		end
+	else
+		for _, otherPlayer in ipairs(Players:GetPlayers()) do
+			if otherPlayer ~= player and otherPlayer.Character then
+				createTag(otherPlayer, otherPlayer.Character)
+			end
+		end
+	end
+end
+
+tagsButton.MouseButton1Click:Connect(function()
+	setTagsEnabled(not tagsEnabled)
+end)
+
+fovPlus.MouseButton1Click:Connect(function()
+	camera.FieldOfView = math.clamp(camera.FieldOfView + 5, 40, 120)
+	fovLabel.Text = "Camera FOV: " .. math.floor(camera.FieldOfView)
+end)
+
+fovMinus.MouseButton1Click:Connect(function()
+	camera.FieldOfView = math.clamp(camera.FieldOfView - 5, 40, 120)
+	fovLabel.Text = "Camera FOV: " .. math.floor(camera.FieldOfView)
+end)
+
+circlePlus.MouseButton1Click:Connect(function()
+	local size = math.clamp(fovCircle.AbsoluteSize.X + 20, 60, 500)
+	fovCircle.Size = UDim2.new(0, size, 0, size)
+	circleLabel.Text = "FOV Circle Size: " .. math.floor(size)
+end)
+
+circleMinus.MouseButton1Click:Connect(function()
+	local size = math.clamp(fovCircle.AbsoluteSize.X - 20, 60, 500)
+	fovCircle.Size = UDim2.new(0, size, 0, size)
+	circleLabel.Text = "FOV Circle Size: " .. math.floor(size)
+end)
+
+circleToggle.MouseButton1Click:Connect(function()
+	fovCircle.Visible = not fovCircle.Visible
+	circleToggle.Text = fovCircle.Visible and "FOV Circle: ON" or "FOV Circle: OFF"
+	circleToggle.BackgroundColor3 = fovCircle.Visible and COLORS.AccentDark or COLORS.Button
+end)
+
+statsButton.MouseButton1Click:Connect(function()
+	statsOverlayEnabled = not statsOverlayEnabled
+	statsButton.Text = statsOverlayEnabled and "Stats Overlay: ON" or "Stats Overlay: OFF"
+	statsButton.BackgroundColor3 = statsOverlayEnabled and COLORS.AccentDark or COLORS.Button
+	overlayFrame.Visible = statsOverlayEnabled
+end)
+
+tpButton.MouseButton1Click:Connect(function()
+	teleportClickEnabled = not teleportClickEnabled
+	tpButton.Text = teleportClickEnabled and "Click Teleport: ON" or "Click Teleport: OFF"
+	tpButton.BackgroundColor3 = teleportClickEnabled and COLORS.AccentDark or COLORS.Button
+end)
+
+mouse.Button1Down:Connect(function()
+	if not teleportClickEnabled or clickTpDebounce then return end
+	if not rootPart then return end
+	if not menuOpen then
+		-- still allowed
+	end
+
+	clickTpDebounce = true
+	refreshCharacter()
+
+	local hit = mouse.Hit
+	if hit then
+		rootPart.CFrame = CFrame.new(hit.Position + Vector3.new(0, 3, 0))
+	end
+
+	task.wait(0.08)
+	clickTpDebounce = false
+end)
+
+for _, otherPlayer in ipairs(Players:GetPlayers()) do
+	if otherPlayer ~= player then
+		otherPlayer.CharacterAdded:Connect(function(newCharacter)
+			task.wait(0.2)
+			if tagsEnabled then
+				createTag(otherPlayer, newCharacter)
+			end
+		end)
+
+		otherPlayer.CharacterRemoving:Connect(function()
+			removeTag(otherPlayer)
+		end)
+	end
+end
+
+Players.PlayerAdded:Connect(function(otherPlayer)
+	if otherPlayer == player then return end
+
+	otherPlayer.CharacterAdded:Connect(function(newCharacter)
+		task.wait(0.2)
+		if tagsEnabled then
+			createTag(otherPlayer, newCharacter)
+		end
+	end)
+
+	otherPlayer.CharacterRemoving:Connect(function()
+		removeTag(otherPlayer)
+	end)
+end)
+
+Players.PlayerRemoving:Connect(function(otherPlayer)
+	removeTag(otherPlayer)
+end)
+
+UIS.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+
+	if input.KeyCode == Enum.KeyCode.RightShift then
+		setMenuOpen(not menuOpen)
+		return
+	end
+
+	if input.KeyCode == Enum.KeyCode.W then keys.W = true end
+	if input.KeyCode == Enum.KeyCode.A then keys.A = true end
+	if input.KeyCode == Enum.KeyCode.S then keys.S = true end
+	if input.KeyCode == Enum.KeyCode.D then keys.D = true end
+	if input.KeyCode == Enum.KeyCode.Space then
+		keys.Space = true
+		if infiniteJump and humanoid then
+			humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+		end
+	end
+	if input.KeyCode == Enum.KeyCode.LeftShift then keys.Shift = true end
+end)
+
+UIS.InputEnded:Connect(function(input)
+	if input.KeyCode == Enum.KeyCode.W then keys.W = false end
+	if input.KeyCode == Enum.KeyCode.A then keys.A = false end
+	if input.KeyCode == Enum.KeyCode.S then keys.S = false end
+	if input.KeyCode == Enum.KeyCode.D then keys.D = false end
+	if input.KeyCode == Enum.KeyCode.Space then keys.Space = false end
+	if input.KeyCode == Enum.KeyCode.LeftShift then keys.Shift = false end
+end)
+
+RunService.RenderStepped:Connect(function(deltaTime)
+	refreshCharacter()
+
+	if humanoid then
+		humanoid.WalkSpeed = walkSpeed
+	end
+
+	if noclip and character then
+		for _, part in ipairs(character:GetDescendants()) do
+			if part:IsA("BasePart") then
+				part.CanCollide = false
+			end
+		end
+	end
+
+	if tagsEnabled and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+		local myRoot = player.Character.HumanoidRootPart
+
+		for targetPlayer, data in pairs(trackedTags) do
+			local targetCharacter = targetPlayer.Character
+			if not targetCharacter or not targetCharacter.Parent then
+				removeTag(targetPlayer)
+			else
+				local currentHRP = targetCharacter:FindFirstChild("HumanoidRootPart")
+				local currentHead = targetCharacter:FindFirstChild("Head")
+				local currentHum = targetCharacter:FindFirstChildOfClass("Humanoid")
+
+				if not currentHRP or not currentHead or not currentHum or currentHum.Health <= 0 then
+					removeTag(targetPlayer)
+				else
+					local distance = (currentHRP.Position - myRoot.Position).Magnitude
+					data.distanceLabel.Text = showDistance and (math.floor(distance) .. " studs") or ""
+					local _, onScreen = camera:WorldToViewportPoint(currentHead.Position)
+					data.billboard.Enabled = onScreen and distance <= 220
+				end
+			end
+		end
+	end
+
+	if statsOverlayEnabled then
+		fpsFrames += 1
+		local now = tick()
+		if now - fpsLastTime >= 1 then
+			currentFPS = fpsFrames
+			fpsFrames = 0
+			fpsLastTime = now
+
+			fpsLabel.Text = "FPS: " .. tostring(currentFPS)
+
+			local pingValue = 0
+			pcall(function()
+				pingValue = math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue())
+			end)
+			pingLabel.Text = "Ping: " .. tostring(pingValue) .. " ms"
+		end
+	end
+end)
+
+switchTab("Movement")
